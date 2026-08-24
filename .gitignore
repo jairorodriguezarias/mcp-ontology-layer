@@ -1,0 +1,32 @@
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables and secrets
+.env
+*.kdbx
+
+# Logs
+*.log
