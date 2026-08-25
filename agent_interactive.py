@@ -136,7 +136,11 @@ def main():
                     })
 
                     content_blocks = tool_response.get("result", {}).get("content", [])
-                    output_text = " ".join([b.get("text", "") for b in content_blocks if b.get("type") == "text"])
+                    output_text = " ".join([
+    			json.dumps(b.get("text")) if isinstance(b.get("text"), (list, dict)) 
+    			else str(b.get("text", ""))
+    			for b in content_blocks if b.get("type") == "text"
+		   ])
                     print(f"  📥 [MCP Output] {output_text}")
 
                     messages.append({

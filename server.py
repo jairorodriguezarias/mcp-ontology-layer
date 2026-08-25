@@ -1,14 +1,19 @@
 import sys
 import json
+import os
 from owlready2 import get_ontology, IRIS, types, sync_reasoner_hermit, default_world
 from pyvis.network import Network
 import rdflib
 
-ONTOLOGY_PATH = "core.owl"
+ONTOLOGY_PATH = os.path.abspath("core.owl")
+ONTOLOGY_URI = f"file://{ONTOLOGY_PATH}"
+
+def get_loaded_ontology():
+    return get_ontology(ONTOLOGY_URI).load()
 
 def handle_list_classes():
     try:
-        onto = get_ontology(f"file://{ONTOLOGY_PATH}").load()
+        onto = get_loaded_ontology()
         classes = [cls.name for cls in list(onto.classes())]
         return f"Ontology classes: {classes}"
     except Exception as e:
@@ -16,7 +21,7 @@ def handle_list_classes():
 
 def handle_add_subclass(new_class: str, parent_class: str):
     try:
-        onto = get_ontology(f"file://{ONTOLOGY_PATH}").load()
+        onto = get_loaded_ontology()
         Parent = IRIS[f"{onto.base_iri}{parent_class}"]
         if not Parent:
             return f"Error: Parent class '{parent_class}' does not exist."
@@ -31,7 +36,7 @@ def handle_add_subclass(new_class: str, parent_class: str):
 
 def handle_create_individual(class_name: str, individual_id: str):
     try:
-        onto = get_ontology(f"file://{ONTOLOGY_PATH}").load()
+        onto = get_loaded_ontology()
         Cls = IRIS[f"{onto.base_iri}{class_name}"]
         if not Cls:
             return f"Error: Class '{class_name}' does not exist."
@@ -46,7 +51,7 @@ def handle_create_individual(class_name: str, individual_id: str):
 
 def handle_check_consistency():
     try:
-        onto = get_ontology(f"file://{ONTOLOGY_PATH}").load()
+        onto = get_loaded_ontology()
         with onto:
             sync_reasoner_hermit(infer_property_values=True)
         return "Consistency Check (HermiT): The ontology is logically consistent. No unsatisfiable classes found."
@@ -54,12 +59,29 @@ def handle_check_consistency():
         return f"Consistency Check (HermiT) Failed: Inconsistency detected -> {e}"
 
 def handle_execute_sparql(query: str):
+    """Executes SPARQL 1.1 queries or updates and guarantees a string response."""
     try:
-        get_ontology(f"file://{ONTOLOGY_PATH}").load()
+        onto = get_loaded_ontology()
         graph = default_world.as_rdflib_graph()
+        
+        # Check if query is an update operation
+        update_keywords = ["INSERT", "DELETE", "CLEAR", "CREATE", "DROP", "LOAD"]
+        is_update = any(token in query.upper() for token in update_keywords)
+        
+        if is_update:
+            with onto:
+                graph.update(query)
+            onto.save(file=ONTOLOGY_PATH, format="rdfxml")
+            return "SPARQL Update executed successfully and changes persisted to core.owl."
+        
+        # Read query
         results = graph.query(query)
-        formatted_results = [list(map(str, row)) for row in results]
-        return json.dumps(formatted_results, indent=2)
+        output = []
+        for row in results:
+            output.append([str(item) for item in row])
+            
+        return json.dumps(output, indent=2)
+        
     except Exception as e:
         return f"SPARQL execution error: {e}"
 
@@ -128,11 +150,11 @@ def main():
         },
         {
             "name": "execute_sparql",
-            "description": "Executes a SPARQL query against the RDF knowledge graph.",
+            "description": "Executes a SPARQL query or update (SELECT, CONSTRUCT, INSERT DATA, DELETE DATA) against the RDF knowledge graph.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Standard W3C SPARQL query string"}
+                    "query": {"type": "string", "description": "Standard W3C SPARQL query or update string"}
                 },
                 "required": ["query"]
             }
@@ -168,7 +190,7 @@ def main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "Banco_Ontology_Manager", "version": "1.3.0"}
+                    "serverInfo": {"name": "Banco_Ontology_Manager", "version": "1.3.1"}
                 }
             }
         elif method == "notifications/initialized":

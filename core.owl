@@ -18,6 +18,10 @@
   <rdfs:subClassOf rdf:resource="#Loan"/>
 </owl:Class>
 
+<owl:Class rdf:about="#PersonalLoan">
+  <rdfs:subClassOf rdf:resource="#Loan"/>
+</owl:Class>
+
 <owl:NamedIndividual rdf:about="#Hipoteca_Fija_001">
   <rdf:type rdf:resource="#PrestamoHipotecario"/>
 </owl:NamedIndividual>
@@ -32,6 +36,14 @@
 
 <owl:NamedIndividual rdf:about="#Credito_Consumo_03">
   <rdf:type rdf:resource="#PrestamoHipotecario"/>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Loan_Auto_2026_01">
+  <rdf:type rdf:resource="#PersonalLoan"/>
+  <term rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">60</term>
+  <principal rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">24500.00</principal>
+  <rate rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">5.75</rate>
+  <currency>EUR</currency>
 </owl:NamedIndividual>
 
 

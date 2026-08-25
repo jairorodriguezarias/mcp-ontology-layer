@@ -77,6 +77,45 @@ python3 agent_interactive.py
 open graph.html
 ```
 
+8. Create specific example
+
+```bash
+python3 interative_agent.py
+
+You > Create a 'PersonalLoan' under 'Loan', instantiate 'Loan_Auto_2026_01', set principal to 24500.00 EUR at 5.75% for 60 months, and verify via SPARQL. 
+
+You > Attach properties to Loan_Auto_2026_01: principal 24500.00 EUR, rate 5.75%, term 60 months. Then list all personal loans with 60 months.
+
+  ⚙️ [MCP Tool Call] list_classes({})
+  📥 [MCP Output] Ontology classes: ['FinancialProduct', 'Loan', 'PrestamoHipotecario', 'PersonalLoan']
+
+  ⚙️ [MCP Tool Call] execute_sparql({
+      "query": "SELECT ?s ?p ?o WHERE { ?s ?p ?o . FILTER(CONTAINS(STR(?s), 'Loan_Auto_2026_01')) } LIMIT 50"
+    })
+  📥 [MCP Output] [
+    ["[http://banco.es/ontologies/core#Loan_Auto_2026_01](http://banco.es/ontologies/core#Loan_Auto_2026_01)", "[http://www.w3.org/1999/02/22-rdf-syntax-ns#type](http://www.w3.org/1999/02/22-rdf-syntax-ns#type)", "[http://www.w3.org/2002/07/owl#NamedIndividual](http://www.w3.org/2002/07/owl#NamedIndividual)"],
+    ["[http://banco.es/ontologies/core#Loan_Auto_2026_01](http://banco.es/ontologies/core#Loan_Auto_2026_01)", "[http://www.w3.org/1999/02/22-rdf-syntax-ns#type](http://www.w3.org/1999/02/22-rdf-syntax-ns#type)", "[http://banco.es/ontologies/core#PersonalLoan](http://banco.es/ontologies/core#PersonalLoan)"]
+  ]
+
+  ⚙️ [MCP Tool Call] execute_sparql({
+      "query": "PREFIX core: [http://banco.es/ontologies/core#](http://banco.es/ontologies/core#)\nPREFIX xsd:  [http://www.w3.org/2001/XMLSchema#](http://www.w3.org/2001/XMLSchema#)\n\nINSERT DATA {\n  core:Loan_Auto_2026_01 core:principal  \"24500.00\"^^xsd:decimal ;\n                         core:currency   \"EUR\" ;\n                         core:rate       \"5.75\"^^xsd:decimal ;\n                         core:term       \"60\"^^xsd:integer .\n}"
+    })
+  📥 [MCP Output] SPARQL Update executed successfully and changes persisted to core.owl.
+
+  ⚙️ [MCP Tool Call] execute_sparql({
+      "query": "PREFIX core: [http://banco.es/ontologies/core#](http://banco.es/ontologies/core#)\n\nSELECT ?loan ?principal ?currency ?rate ?term WHERE {\n  ?loan a core:PersonalLoan ;\n        core:term ?term ;\n        core:principal ?principal ;\n        core:currency ?currency ;\n        core:rate ?rate .\n  FILTER(?term = 60)\n}"
+    })
+  📥 [MCP Output] [
+    ["[http://banco.es/ontologies/core#Loan_Auto_2026_01](http://banco.es/ontologies/core#Loan_Auto_2026_01)", "24500.00", "EUR", "5.75", "60"]
+  ]
+
+Agent > Summary of operations:
+- Attached properties to 'Loan_Auto_2026_01' (Principal: 24,500.00 EUR, Rate: 5.75%, Term: 60 months).
+- Verified graph persistence in core.owl.
+- Filtered personal loans matching a 60-month term: 1 result found (Loan_Auto_2026_01).
+
+you >  Export the current graph visualization.
+
 Available MCP Tools
 * **list_classes**
 * **Parameters:** None
