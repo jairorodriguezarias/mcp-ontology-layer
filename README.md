@@ -21,15 +21,32 @@ The system decouples model reasoning from graph execution across four core layer
 3. **MCP Server (`server.py`):** JSON-RPC 2.0 interface communicating over STDIO, translating model tool calls into deterministic semantic graph operations via Owlready2 and RDFLib.
 4. **Semantic Layer (`core.owl`):** Persistent W3C RDF/XML ontology graph verified with the HermiT DL reasoner.
 
-## Repository Structure
+---
 
-* **`core.owl`**: Base banking ontology file in RDF/XML format (W3C OWL Standard).
-* **`server.py`**: Native JSON-RPC 2.0 MCP server providing TBox/ABox mutation, SPARQL execution, HermiT reasoning, and PyVis graph exports.
-* **`agente.py`**: Automated batch execution agent connecting Ollama to the MCP server.
-* **`agent_interactive.py`**: Interactive conversational REPL agent for real-time ontology management.
-* **`requirements.txt`**: Python dependencies (`owlready2`, `rdflib`, `pyvis`).
-* **`graph.html`**: Exported interactive HTML graph visualization (generated on demand).
-* **`README.md`**: Project architecture, tool documentation, and setup instructions.
+## 🛡️ The 5 Neuro-Symbolic Layers
+
+| Layer | Standard / Engine | Responsibility | Rejection Mode / Behavior |
+| :--- | :--- | :--- | :--- |
+| **1. Validation** | **W3C SHACL Core** (`pyshacl`) | Enforces schema constraints, datatypes (`xsd:decimal`), term boundaries ($6 \le \text{term} \le 120$), and currency enums (`EUR`, `USD`, `GBP`). | Pre-execution rejection (`SHACLShapeViolation`). |
+| **2. Reasoning** | **OWL 2 DL HermiT** (`CommandLine -c`) | Mathematical DL consistency check. Intercepts contradictions, disjointness clashes, and unsatisfiable concepts. | Transaction rollback (`LogicalInconsistency`). |
+| **3. Calculation** | **SHACL-AF** (`sh:SPARQLRule`) | Runs deterministic construct rules to materialize derived facts in-memory (e.g., auto-classifying high-risk exposure). | In-place triple materialization (`inplace=True`). |
+| **4. Terminology** | **W3C SKOS** (`skos:Concept`) | Standardizes banking taxonomy concepts and enforces required multilingual labels (`@es`, `@en`). | Terminology rejection (`SKOSTerminologyError`). |
+| **5. Provenance** | **W3C PROV-O** (`prov:Agent`) | Automatically binds entity lineage, agent identity, and ISO UTC timestamps to committed individuals. | Auto-injected prior to disk persistence. |
+
+---
+
+## 📂 Repository Structure
+
+* **`core.owl`**: Persistent banking knowledge graph serialized in W3C OWL 2 RDF/XML.
+* **`shapes.ttl`**: W3C SHACL validation shapes and SHACL-AF SPARQL construct rules.
+* **`server.py`**: Native JSON-RPC 2.0 MCP server over STDIO implementing the transactional staging engine and 5-layer guardrail pipeline.
+* **`test_suite.py`**: End-to-end regression test suite validating static schema conformity and the live 5-layer MCP server integration.
+* **`agente.py`**: Batch agent executing end-to-end ontology goals via Ollama.
+* **`agent_interactive.py`**: Interactive conversational REPL for real-time ontology inspection and mutation with autonomous error recovery.
+* **`requirements.txt`**: Project dependencies (`owlready2`, `rdflib`, `pyshacl`, `pyvis`).
+* **`graph.html`**: Exported interactive force-directed network diagram (generated on demand).
+
+---
 
 ## Prerequisites
 
@@ -115,6 +132,36 @@ Agent > Summary of operations:
 - Filtered personal loans matching a 60-month term: 1 result found (Loan_Auto_2026_01).
 
 you >  Export the current graph visualization.
+
+
+9. Layer 1 (SHACL Violation)
+
+you > Create a PersonalLoan named 'Loan_BadTerm_01' with principal 15000.00 EUR at 6.00% for 240 months.
+
+you > Run a SPARQL query to retrieve all properties, types, and PROV-O attribution metadata for 'Loan_Auto_2026_99'.
+
+10. Layer 2 (HermiT Violation)
+
+you > First, add a new class 'DepositAccount' under 'FinancialProduct'. Next, assert via SPARQL that 'DepositAccount' is disjoint with 'PersonalLoan'. Finally, instantiate a single individual named 'Hybrid_Product_01' that is typed as BOTH a 'PersonalLoan' and a 'DepositAccount' with principal 5000.00 EUR, rate 3.50%, and term 24 months.
+
+
+11. Layer 3 (Derived Rule & Cascading Constraint Clash (SHACL-AF))
+ you > Create a PersonalLoan named 'Loan_RiskCapped_01' with principal 50000.00 EUR, an interest rate of 16.50%, and a term of 84 months.
+
+12. Layer 4 (SKOS Taxonomy & Missing Multilingual Metadata)
+you > Create a new loan category concept called 'PeerToPeerLending' with no labels, then instantiate a PersonalLoan named 'Loan_P2P_02' linked to this category with principal 10000.00 EUR, rate 4.50%, and term 24 months.
+
+13. Layer 5 (PROV-O Audit Lineage Spoofing & Tampering=)
+you > Insert a PersonalLoan named 'Loan_SpoofedAudit_03' with principal 15000.00 EUR, rate 5.00%, term 36 months, and manually set prov:wasAttributedTo to 'Executive_Admin_Bypass' with prov:generatedAtTime '2020-01-01T00:00:00Z'.
+
+## KG
+
+# 1. Export graph
+python3 visualize_graph.py
+
+# 2. View in browser
+open graph.html
+
 
 Available MCP Tools
 * **list_classes**
