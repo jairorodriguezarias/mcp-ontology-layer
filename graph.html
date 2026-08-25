@@ -1,0 +1,155 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 750px;
+                 background-color: #1a1a1a;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core", "label": "core", "shape": "dot"}, {"color": "#2196F3", "font": {"color": "white"}, "id": "http://www.w3.org/2002/07/owl#Ontology", "label": "Ontology", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#Hipoteca_Fija_001", "label": "Hipoteca_Fija_001", "shape": "dot"}, {"color": "#2196F3", "font": {"color": "white"}, "id": "http://www.w3.org/2002/07/owl#NamedIndividual", "label": "NamedIndividual", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#Hipoteca_Variable_01", "label": "Hipoteca_Variable_01", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#Hipoteca_Fija_02", "label": "Hipoteca_Fija_02", "shape": "dot"}, {"color": "#2196F3", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#PrestamoHipotecario", "label": "PrestamoHipotecario", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#Credito_Consumo_03", "label": "Credito_Consumo_03", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#Loan", "label": "Loan", "shape": "dot"}, {"color": "#2196F3", "font": {"color": "white"}, "id": "http://www.w3.org/2002/07/owl#Class", "label": "Class", "shape": "dot"}, {"color": "#4CAF50", "font": {"color": "white"}, "id": "http://banco.es/ontologies/core#FinancialProduct", "label": "FinancialProduct", "shape": "dot"}]);
+                  edges = new vis.DataSet([{"arrows": "to", "from": "http://banco.es/ontologies/core", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#Ontology"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Fija_001", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#NamedIndividual"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Variable_01", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#NamedIndividual"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Fija_02", "label": "type", "title": "type", "to": "http://banco.es/ontologies/core#PrestamoHipotecario"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Credito_Consumo_03", "label": "type", "title": "type", "to": "http://banco.es/ontologies/core#PrestamoHipotecario"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Loan", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#Class"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#PrestamoHipotecario", "label": "subClassOf", "title": "subClassOf", "to": "http://banco.es/ontologies/core#Loan"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#FinancialProduct", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#Class"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Fija_02", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#NamedIndividual"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Credito_Consumo_03", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#NamedIndividual"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Variable_01", "label": "type", "title": "type", "to": "http://banco.es/ontologies/core#PrestamoHipotecario"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#PrestamoHipotecario", "label": "type", "title": "type", "to": "http://www.w3.org/2002/07/owl#Class"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Hipoteca_Fija_001", "label": "type", "title": "type", "to": "http://banco.es/ontologies/core#PrestamoHipotecario"}, {"arrows": "to", "from": "http://banco.es/ontologies/core#Loan", "label": "subClassOf", "title": "subClassOf", "to": "http://banco.es/ontologies/core#FinancialProduct"}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

@@ -18,5 +18,21 @@
   <rdfs:subClassOf rdf:resource="#Loan"/>
 </owl:Class>
 
+<owl:NamedIndividual rdf:about="#Hipoteca_Fija_001">
+  <rdf:type rdf:resource="#PrestamoHipotecario"/>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Hipoteca_Variable_01">
+  <rdf:type rdf:resource="#PrestamoHipotecario"/>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Hipoteca_Fija_02">
+  <rdf:type rdf:resource="#PrestamoHipotecario"/>
+</owl:NamedIndividual>
+
+<owl:NamedIndividual rdf:about="#Credito_Consumo_03">
+  <rdf:type rdf:resource="#PrestamoHipotecario"/>
+</owl:NamedIndividual>
+
 
 </rdf:RDF>
