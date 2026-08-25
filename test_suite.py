@@ -11,6 +11,7 @@ CORE = rdflib.Namespace("http://banco.es/ontologies/core#")
 SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
 PROV = rdflib.Namespace("http://www.w3.org/ns/prov#")
 RDF = rdflib.RDF
+XSD = rdflib.XSD
 
 # =====================================================================
 # STAGE 1: Static File & SHACL Schema Validation
@@ -86,7 +87,7 @@ def run_stage_2_mcp_integration_tests():
             return raw_text
 
     try:
-        # MCP Handshake
+        # MCP Protocol Handshake
         send_request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "TestSuite"}}, req_id=0)
         send_notification("notifications/initialized")
 
@@ -109,7 +110,7 @@ def run_stage_2_mcp_integration_tests():
         print("  ✔ Layer 1 (SHACL): Invalid data (currency/term) rejected before reasoning.")
 
         # -------------------------------------------------------------
-        # TEST 2.2: Layer 2 — HermiT OWL 2 DL Logical Inconsistency Gating
+        # TEST 2.2: Layer 2 — HermiT OWL 2 DL Contradiction Gating
         # -------------------------------------------------------------
         call_tool("add_subclass", {"new_class": "DepositAccount", "parent_class": "FinancialProduct"}, req_id=2)
         t2_contradiction = """
@@ -127,7 +128,7 @@ def run_stage_2_mcp_integration_tests():
         """
         res_l2 = call_tool("execute_sparql", {"query": t2_contradiction}, req_id=3)
         assert res_l2.get("status") == "REJECTED" and res_l2.get("error_type") == "LogicalInconsistency", f"Test 2.2 Failed: {res_l2}"
-        print("  ✔ Layer 2 (HermiT): Disjointness contradiction intercepted & rolled back.")
+        print("  ✔ Layer 2 (HermiT): Disjointness clash intercepted & rolled back.")
 
         # -------------------------------------------------------------
         # TEST 2.3: Layer 3 — SHACL-AF SPARQL Rule Inference
@@ -144,26 +145,24 @@ def run_stage_2_mcp_integration_tests():
         }
         """
         res_l3 = call_tool("execute_sparql", {"query": t3_rule}, req_id=4)
-        assert res_l3.get("status") == "SUCCESS", f"Test 2.3 Failed to insert: {res_l3}"
+        assert res_l3.get("status") == "SUCCESS", f"Test 2.3 Failed: {res_l3}"
 
         g_l3 = rdflib.Graph().parse(DATA_FILE, format="xml")
-        loan_l3_ref = CORE.Loan_HighRate_L3
-        is_high_risk = (loan_l3_ref, RDF.type, CORE.HighRiskProduct) in g_l3
-        assert is_high_risk, "Test 2.3 Failed: SHACL-AF rule did not materialize core:HighRiskProduct"
+        assert (CORE.Loan_HighRate_L3, RDF.type, CORE.HighRiskProduct) in g_l3, "Test 2.3 Failed: core:HighRiskProduct not materialized"
         print("  ✔ Layer 3 (SHACL-AF): Rate > 10.0% materialized core:HighRiskProduct.")
 
         # -------------------------------------------------------------
-        # TEST 2.4: Layer 4 — SKOS Concept Taxonomy Gating
+        # TEST 2.4: Layer 4 — SKOS Missing-Label Rejection & Taxonomy Gate
         # -------------------------------------------------------------
-        # 2.4a: Negative test - Missing prefLabel
+        # 2.4a: Negative test - Unlabelled concept MUST be rejected
         t4_bad_skos = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:Concept_Unlabeled a skos:Concept .
-            core:Loan_BadSKOS_L4 a core:PersonalLoan ;
-                core:loanCategory core:Concept_Unlabeled ;
+            core:PeerToPeerLending a skos:Concept .
+            core:Loan_P2P_BadSKOS a core:PersonalLoan ;
+                core:loanCategory core:PeerToPeerLending ;
                 core:principal "10000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
                 core:term 24 ;
@@ -171,41 +170,71 @@ def run_stage_2_mcp_integration_tests():
         }
         """
         res_l4_bad = call_tool("execute_sparql", {"query": t4_bad_skos}, req_id=5)
-        assert res_l4_bad.get("status") == "REJECTED" and res_l4_bad.get("error_type") == "SKOSTerminologyError", f"Test 2.4a Failed: {res_l4_bad}"
+        assert res_l4_bad.get("status") == "REJECTED", f"Test 2.4a Failed: Expected rejection, got {res_l4_bad}"
+        assert res_l4_bad.get("error_type") == "SKOSTerminologyError", f"Test 2.4a Failed: Expected SKOSTerminologyError, got {res_l4_bad.get('error_type')}"
+        assert "PeerToPeerLending" in res_l4_bad.get("details", ""), "Test 2.4a Failed: Error details did not mention offending concept."
+        print("  ✔ Layer 4a (SKOS Negative): Unlabelled concept 'PeerToPeerLending' blocked with SKOSTerminologyError.")
 
-        # 2.4b: Positive test - Valid multilingual SKOS concept
+        # 2.4b: Positive test - Concept with multilingual prefLabels MUST pass
         t4_good_skos = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:AutoLoanConcept a skos:Concept ;
-                skos:prefLabel "Préstamo Auto"@es, "Auto Loan"@en .
-            core:Loan_GoodSKOS_L4 a core:PersonalLoan ;
-                core:loanCategory core:AutoLoanConcept ;
-                core:principal "12000.00"^^xsd:decimal ;
+            core:PeerToPeerLending a skos:Concept ;
+                skos:prefLabel "Peer-to-Peer Lending"@en , "Préstamo P2P"@es .
+            core:Loan_P2P_GoodSKOS a core:PersonalLoan ;
+                core:loanCategory core:PeerToPeerLending ;
+                core:principal "10000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
-                core:term 36 ;
-                core:rate "4.75"^^xsd:decimal .
+                core:term 24 ;
+                core:rate "4.50"^^xsd:decimal .
         }
         """
         res_l4_good = call_tool("execute_sparql", {"query": t4_good_skos}, req_id=6)
-        assert res_l4_good.get("status") == "SUCCESS", f"Test 2.4b Failed: {res_l4_good}"
-        print("  ✔ Layer 4 (SKOS): Unlabeled concepts rejected; multilingual taxonomies verified.")
+        assert res_l4_good.get("status") == "SUCCESS", f"Test 2.4b Failed: Valid SKOS concept was rejected: {res_l4_good}"
+        print("  ✔ Layer 4b (SKOS Positive): Concept with @en and @es prefLabels successfully committed.")
 
         # -------------------------------------------------------------
-        # TEST 2.5: Layer 5 — PROV-O Audit Trail & Lineage Verification
+        # TEST 2.5: Layer 5 — PROV-O Dual-Stamping & Forensic Lineage Assertion
         # -------------------------------------------------------------
+        t5_spoofed_prov = """
+        PREFIX core: <http://banco.es/ontologies/core#>
+        PREFIX prov: <http://www.w3.org/ns/prov#>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        INSERT DATA {
+            core:Loan_SpoofedAudit_03 a core:PersonalLoan ;
+                core:principal "15000.00"^^xsd:decimal ;
+                core:currency "EUR" ;
+                core:term 36 ;
+                core:rate "5.00"^^xsd:decimal ;
+                prov:wasAttributedTo "Executive_Admin_Bypass" ;
+                prov:generatedAtTime "2020-01-01T00:00:00Z"^^xsd:dateTime .
+        }
+        """
+        res_l5 = call_tool("execute_sparql", {"query": t5_spoofed_prov}, req_id=7)
+        assert res_l5.get("status") == "SUCCESS", f"Test 2.5 Failed: Transaction was not accepted: {res_l5}"
+
+        # Inspect core.owl on disk to verify dual-stamping
         g_l5 = rdflib.Graph().parse(DATA_FILE, format="xml")
-        loan_l5_ref = CORE.Loan_GoodSKOS_L4
+        loan_ref = CORE.Loan_SpoofedAudit_03
 
-        agent_attrs = list(g_l5.objects(loan_l5_ref, PROV.wasAttributedTo))
-        timestamps = list(g_l5.objects(loan_l5_ref, PROV.generatedAtTime))
+        attributions = [str(o) for o in g_l5.objects(loan_ref, PROV.wasAttributedTo)]
+        timestamps = [str(o) for o in g_l5.objects(loan_ref, PROV.generatedAtTime)]
 
-        assert len(agent_attrs) > 0, "Test 2.5 Failed: Missing prov:wasAttributedTo"
-        assert len(timestamps) > 0, "Test 2.5 Failed: Missing prov:generatedAtTime"
-        assert (agent_attrs[0], RDF.type, PROV.Agent) in g_l5, "Test 2.5 Failed: Attributed entity is not a prov:Agent"
-        print(f"  ✔ Layer 5 (PROV-O): Stamped agent ({agent_attrs[0].split('#')[-1]}) & timestamp ({timestamps[0]}).")
+        # 1. Check Dual Attributions (Spoofed literal + Verified System Agent URI)
+        assert "Executive_Admin_Bypass" in attributions, "Test 2.5 Failed: Spoofed attribution literal missing from graph."
+        assert str(CORE.MCP_Autonomous_Agent) in attributions, "Test 2.5 Failed: Verified system agent URI was not stamped."
+        assert len(attributions) >= 2, f"Test 2.5 Failed: Expected >=2 attributions for dual-audit, found: {attributions}"
+
+        # 2. Check Dual Timestamps (Backdated 2020 timestamp + Live System ISO timestamp)
+        has_backdated_time = any("2020-01-01" in t for t in timestamps)
+        has_current_time = any("2020-01-01" not in t for t in timestamps)
+        assert has_backdated_time, "Test 2.5 Failed: Backdated user timestamp missing."
+        assert has_current_time, "Test 2.5 Failed: Real-time system execution timestamp missing."
+        assert len(timestamps) >= 2, f"Test 2.5 Failed: Expected >=2 timestamps for dual-audit, found: {timestamps}"
+
+        print(f"  ✔ Layer 5 (PROV-O Dual-Stamp): Verified forensic dual-attribution {attributions} and dual-timestamps {timestamps}.")
 
     finally:
         proc.terminate()
@@ -221,5 +250,5 @@ if __name__ == "__main__":
     run_stage_1_static_tests()
     run_stage_2_mcp_integration_tests()
     print("\n================================================================")
-    print("🎉 ALL 5 LAYERS INDEPENDENTLY VALIDATED AND PASSING.")
+    print("🎉 ALL 5 LAYERS (INCLUDING SKOS & PROV-O FORENSICS) VERIFIED.")
     print("================================================================")
