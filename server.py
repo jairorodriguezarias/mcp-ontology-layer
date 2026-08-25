@@ -3,15 +3,19 @@ import json
 import os
 import tempfile
 import subprocess
+from datetime import datetime, timezone
 import rdflib
-from rdflib import Graph, URIRef, RDF, RDFS, OWL, Namespace
+from rdflib import Graph, URIRef, Literal, RDF, RDFS, OWL, XSD, Namespace
 import pyshacl
 import owlready2
 import owlready2.hermit
 
 ONTOLOGY_PATH = os.path.abspath("core.owl")
 SHAPES_PATH = os.path.abspath("shapes.ttl")
+
 CORE = Namespace("http://banco.es/ontologies/core#")
+SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
+PROV = Namespace("http://www.w3.org/ns/prov#")
 
 # Resolve HermiT Java paths
 JAVA_EXE = getattr(owlready2, "JAVA_EXE", "java")
@@ -21,32 +25,59 @@ if not HERMIT_CLASSPATH:
     sep = ";" if sys.platform.startswith("win") else ":"
     HERMIT_CLASSPATH = f"{hermit_dir}{sep}{os.path.join(hermit_dir, 'HermiT.jar')}"
 
+# Ensure base ontology exists
+if not os.path.exists(ONTOLOGY_PATH):
+    init_g = Graph()
+    init_g.bind("core", CORE)
+    init_g.bind("owl", OWL)
+    init_g.bind("skos", SKOS)
+    init_g.bind("prov", PROV)
+    init_g.add((URIRef("http://banco.es/ontologies/core"), RDF.type, OWL.Ontology))
+    init_g.add((CORE.FinancialProduct, RDF.type, OWL.Class))
+    init_g.add((CORE.PersonalLoan, RDF.type, OWL.Class))
+    init_g.add((CORE.HighRiskProduct, RDF.type, OWL.Class))
+    init_g.add((CORE.PersonalLoan, RDFS.subClassOf, CORE.FinancialProduct))
+    init_g.add((CORE.HighRiskProduct, RDFS.subClassOf, CORE.FinancialProduct))
+    init_g.serialize(destination=ONTOLOGY_PATH, format="xml")
 
-class DualValidationGuardrail:
-    """Transactional staging engine: RDFLib (SHACL) -> HermiT (OWL 2 DL) -> Disk."""
+
+class FullNeuroSymbolicRuntime:
+    """Executes the full 5-layer pipeline on every incoming mutation."""
 
     @staticmethod
-    def transactional_update(sparql_update: str) -> dict:
-        # 1. Load current graph into isolated staging graph
+    def transactional_update(sparql_update: str, agent_id: str = "MCP_Autonomous_Agent") -> dict:
         staging_graph = Graph()
+        staging_graph.bind("core", CORE)
+        staging_graph.bind("skos", SKOS)
+        staging_graph.bind("prov", PROV)
+
+        # 1. Load persistent graph into staging sandbox
         try:
             staging_graph.parse(ONTOLOGY_PATH, format="xml")
         except Exception as e:
             return {"status": "REJECTED", "error_type": "StorageError", "details": f"Failed to load core.owl: {e}"}
 
-        # 2. Apply SPARQL update in staging
+        # 2. Apply raw SPARQL mutation in staging
         try:
             staging_graph.update(sparql_update)
         except Exception as e:
             return {"status": "REJECTED", "error_type": "SPARQLSyntaxError", "details": str(e)}
 
-        # 3. Stage 1: SHACL Data Quality Validation
+        # -------------------------------------------------------------
+        # LAYER 1 (Validation) & LAYER 3 (SHACL-AF Inferences)
+        # -------------------------------------------------------------
+        inferred_rules_count = 0
         if os.path.exists(SHAPES_PATH):
             try:
                 shapes_graph = Graph().parse(SHAPES_PATH, format="turtle")
+                initial_count = len(staging_graph)
+
                 conforms, _, report_text = pyshacl.validate(
                     data_graph=staging_graph,
                     shacl_graph=shapes_graph,
+                    advanced=True,
+                    inplace=True,
+                    iterate_rules=True,
                     inference="rdfs",
                     abort_on_first=False
                 )
@@ -56,10 +87,13 @@ class DualValidationGuardrail:
                         "error_type": "SHACLShapeViolation",
                         "details": report_text.strip()
                     }
+                inferred_rules_count = len(staging_graph) - initial_count
             except Exception as e:
                 return {"status": "REJECTED", "error_type": "SHACLExecutionError", "details": str(e)}
 
-        # 4. Stage 2: HermiT DL Consistency Check (-c flag)
+        # -------------------------------------------------------------
+        # LAYER 2: HermiT DL Consistency Check
+        # -------------------------------------------------------------
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".owl", delete=False) as tmp_file:
@@ -85,22 +119,47 @@ class DualValidationGuardrail:
                     "error_type": "LogicalInconsistency",
                     "details": output
                 }
-
         except Exception as e:
-            return {
-                "status": "REJECTED",
-                "error_type": "HermiTExecutionError",
-                "details": str(e)
-            }
+            return {"status": "REJECTED", "error_type": "HermiTExecutionError", "details": str(e)}
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-        # 5. Atomic Commit: Only write to disk if both SHACL & HermiT passed
+        # -------------------------------------------------------------
+        # LAYER 4: SKOS Terminology Verification
+        # -------------------------------------------------------------
+        for _, _, concept_uri in staging_graph.triples((None, CORE.loanCategory, None)):
+            labels = list(staging_graph.objects(concept_uri, SKOS.prefLabel))
+            if not labels:
+                return {
+                    "status": "REJECTED",
+                    "error_type": "SKOSTerminologyError",
+                    "details": f"Concept {concept_uri} is missing required skos:prefLabel definitions."
+                }
+
+        # -------------------------------------------------------------
+        # LAYER 5: PROV-O Audit Trail Auto-Injection
+        # -------------------------------------------------------------
+        now_iso = datetime.now(timezone.utc).isoformat()
+        agent_uri = CORE[agent_id]
+        staging_graph.add((agent_uri, RDF.type, PROV.Agent))
+
+        for s, _, _ in staging_graph.triples((None, RDF.type, CORE.PersonalLoan)):
+            staging_graph.add((s, PROV.wasAttributedTo, agent_uri))
+            staging_graph.add((s, PROV.generatedAtTime, Literal(now_iso, datatype=XSD.dateTime)))
+
+        # Commit verified state to disk
         staging_graph.serialize(destination=ONTOLOGY_PATH, format="xml")
         return {
             "status": "SUCCESS",
-            "message": "Mutation passed SHACL and HermiT validation and committed."
+            "message": "Mutation verified across all 5 runtime layers and committed.",
+            "pipeline_metrics": {
+                "layer_1_shacl": "PASSED",
+                "layer_2_hermit": "PASSED",
+                "layer_3_rules_inferred_triples": inferred_rules_count,
+                "layer_4_skos_validated": True,
+                "layer_5_prov_stamped": True
+            }
         }
 
 
@@ -110,9 +169,9 @@ def dispatch_tool(tool_name: str, args: dict) -> dict:
     if tool_name == "execute_sparql":
         query = args.get("query", "")
         is_update = any(k in query.upper() for k in ["INSERT", "DELETE", "CLEAR", "CREATE", "DROP", "LOAD"])
-        
+
         if is_update:
-            return DualValidationGuardrail.transactional_update(query)
+            return FullNeuroSymbolicRuntime.transactional_update(query)
         else:
             g = Graph().parse(ONTOLOGY_PATH, format="xml")
             results = g.query(query)
@@ -132,7 +191,7 @@ def dispatch_tool(tool_name: str, args: dict) -> dict:
                 rdfs:subClassOf core:{parent_class} .
         }}
         """
-        return DualValidationGuardrail.transactional_update(sparql_subclass)
+        return FullNeuroSymbolicRuntime.transactional_update(sparql_subclass)
 
     return {"status": "ERROR", "message": f"Unknown tool: {tool_name}"}
 
@@ -155,7 +214,7 @@ def handle_json_rpc(line: str) -> str:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "OntologyGuardrailServer", "version": "1.0.0"}
+                    "serverInfo": {"name": "NeuroSymbolicOntologyServer", "version": "1.0.0"}
                 }
             })
 
@@ -170,7 +229,7 @@ def handle_json_rpc(line: str) -> str:
                     "tools": [
                         {
                             "name": "execute_sparql",
-                            "description": "Execute a SPARQL Query or UPDATE through the validation guardrail.",
+                            "description": "Execute a SPARQL Query or UPDATE through the 5-layer neuro-symbolic guardrail.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {"query": {"type": "string"}},
@@ -223,7 +282,7 @@ def handle_json_rpc(line: str) -> str:
 
 
 def main():
-    sys.stderr.write("Server started. Listening on stdio...\n")
+    sys.stderr.write("Neuro-Symbolic Server started. Listening on stdio...\n")
     sys.stderr.flush()
 
     while True:

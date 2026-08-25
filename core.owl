@@ -1,28 +1,109 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rdf:RDF
-   xmlns="http://banco.es/ontologies/core#"
+   xmlns:core="http://banco.es/ontologies/core#"
+   xmlns:prov="http://www.w3.org/ns/prov#"
    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
 >
-  <rdf:Description rdf:about="http://banco.es/ontologies/core#Loan_Valid_99">
-    <currency>EUR</currency>
-    <principal rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">18000.00</principal>
-    <rate rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">5.50</rate>
-    <term rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">60</term>
-    <rdf:type rdf:resource="http://banco.es/ontologies/core#PersonalLoan"/>
-  </rdf:Description>
-  <rdf:Description rdf:about="http://banco.es/ontologies/core#PersonalLoan">
-    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
-    <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
-  </rdf:Description>
   <rdf:Description rdf:about="http://banco.es/ontologies/core">
     <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Ontology"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/2000/01/rdf-schema#subClassOf">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2000/01/rdf-schema#subClassOf"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/ns/prov#wasAttributedTo">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://www.w3.org/ns/prov#wasAttributedTo"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/2002/07/owl#Ontology">
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#HighRiskProduct">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#principal">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://banco.es/ontologies/core#principal"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/ns/prov#generatedAtTime">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://www.w3.org/ns/prov#generatedAtTime"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#Loan_5Layer_01">
+    <core:currency>EUR</core:currency>
+    <core:principal rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">25000.00</core:principal>
+    <core:rate rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">14.50</core:rate>
+    <core:term rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">48</core:term>
+    <rdf:type rdf:resource="http://banco.es/ontologies/core#PersonalLoan"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdf:type rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+    <rdf:type rdf:resource="http://banco.es/ontologies/core#HighRiskProduct"/>
+    <prov:wasAttributedTo rdf:resource="http://banco.es/ontologies/core#MCP_Autonomous_Agent"/>
+    <prov:generatedAtTime rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2026-08-25T12:00:48.209421+00:00</prov:generatedAtTime>
+    <prov:generatedAtTime rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2026-08-25T12:01:30.497332+00:00</prov:generatedAtTime>
+    <prov:generatedAtTime rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2026-08-25T12:01:30.741197+00:00</prov:generatedAtTime>
   </rdf:Description>
   <rdf:Description rdf:about="http://banco.es/ontologies/core#DepositAccount">
     <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
     <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/2000/01/rdf-schema#subPropertyOf">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://www.w3.org/2000/01/rdf-schema#subPropertyOf"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#PersonalLoan">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#rate">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://banco.es/ontologies/core#rate"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/1999/02/22-rdf-syntax-ns#type">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#type"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#MCP_Autonomous_Agent">
+    <rdf:type rdf:resource="http://www.w3.org/ns/prov#Agent"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
   </rdf:Description>
   <rdf:Description rdf:about="http://banco.es/ontologies/core#FinancialProduct">
     <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#term">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://banco.es/ontologies/core#term"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#currency">
+    <rdf:type rdf:resource="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"/>
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+    <rdfs:subPropertyOf rdf:resource="http://banco.es/ontologies/core#currency"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/2002/07/owl#Class">
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/2000/01/rdf-schema#Resource">
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/1999/02/22-rdf-syntax-ns#Property">
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.w3.org/ns/prov#Agent">
+    <rdf:type rdf:resource="http://www.w3.org/2000/01/rdf-schema#Resource"/>
   </rdf:Description>
 </rdf:RDF>

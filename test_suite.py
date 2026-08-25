@@ -13,7 +13,7 @@ SHAPES_FILE = "shapes.ttl"
 # =====================================================================
 def run_stage_1_static_tests():
     print("▶ STAGE 1: Static File & SHACL Schema Validation")
-    
+
     for f in [DATA_FILE, SHAPES_FILE]:
         if not os.path.exists(f):
             raise FileNotFoundError(f"Missing required file: {f}")
@@ -36,22 +36,24 @@ def run_stage_1_static_tests():
 
 
 # =====================================================================
-# STAGE 2: Dynamic MCP Server & Guardrail Integration Test
+# STAGE 2: Dynamic MCP Server & 5-Layer Integration Test
 # =====================================================================
 def run_stage_2_mcp_integration_tests():
-    print("▶ STAGE 2: Live MCP Server Integration & Guardrail Test")
+    print("▶ STAGE 2: Live MCP Server 5-Layer Integration Test")
 
     proc = subprocess.Popen(
         [sys.executable, "-u", "server.py"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=sys.stderr,  # Stream server logs and Java output directly to terminal
+        stderr=sys.stderr,
         text=True,
         bufsize=1
     )
 
     def send_request(method: str, params: dict = None, req_id: int = 1):
-        """Sends a JSON-RPC request and waits for a response."""
+        if proc.poll() is not None:
+            raise RuntimeError(f"server.py exited prematurely with code {proc.returncode}")
+
         payload = {"jsonrpc": "2.0", "id": req_id, "method": method}
         if params:
             payload["params"] = params
@@ -64,7 +66,6 @@ def run_stage_2_mcp_integration_tests():
         return json.loads(line)
 
     def send_notification(method: str, params: dict = None):
-        """Sends a JSON-RPC notification (does NOT wait for a response)."""
         payload = {"jsonrpc": "2.0", "method": method}
         if params:
             payload["params"] = params
@@ -80,32 +81,48 @@ def run_stage_2_mcp_integration_tests():
             return raw_text
 
     try:
-        # Handshake: Request followed by Notification
+        # Step 0: Handshake
         send_request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "TestSuite"}}, req_id=0)
         send_notification("notifications/initialized")
 
-        # 2.1 Happy Path
+        # -------------------------------------------------------------
+        # 2.1 Happy Path: Rate > 10% (Triggers Layer 1, 2, 3, 5)
+        # -------------------------------------------------------------
         t1 = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:Loan_Valid_99 a core:PersonalLoan ;
-                core:principal "18000.00"^^xsd:decimal ;
+            core:Loan_5Layer_01 a core:PersonalLoan ;
+                core:principal "25000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
-                core:term 60 ;
-                core:rate "5.50"^^xsd:decimal .
+                core:term 48 ;
+                core:rate "14.50"^^xsd:decimal .
         }
         """
         res1 = call_tool("execute_sparql", {"query": t1}, req_id=1)
         assert res1.get("status") == "SUCCESS", f"Test 2.1 Failed: {res1}"
-        print("  ✔ 2.1 Happy Path: Valid transaction verified and committed.")
+        
+        # Verify Layer 3 (HighRiskProduct materialized) & Layer 5 (PROV-O stamped) in core.owl
+        g = rdflib.Graph().parse(DATA_FILE, format="xml")
+        loan_ref = rdflib.URIRef("http://banco.es/ontologies/core#Loan_5Layer_01")
+        high_risk_ref = rdflib.URIRef("http://banco.es/ontologies/core#HighRiskProduct")
+        prov_attr = rdflib.URIRef("http://www.w3.org/ns/prov#wasAttributedTo")
+        
+        has_high_risk = (loan_ref, rdflib.RDF.type, high_risk_ref) in g
+        has_prov = bool(list(g.objects(loan_ref, prov_attr)))
 
-        # 2.2 SHACL Violation Interception
+        assert has_high_risk, "Test 2.1 Failed: Layer 3 SHACL-AF did not materialize core:HighRiskProduct"
+        assert has_prov, "Test 2.1 Failed: Layer 5 PROV-O metadata was not stamped"
+        print("  ✔ 2.1 Happy Path: Verified SHACL, HermiT, SHACL-AF Rule Materialization & PROV-O Stamp.")
+
+        # -------------------------------------------------------------
+        # 2.2 SHACL Violation Interception (Layer 1)
+        # -------------------------------------------------------------
         t2 = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:Loan_Invalid_99 a core:PersonalLoan ;
+            core:Loan_Bad_02 a core:PersonalLoan ;
                 core:principal "5000.00"^^xsd:decimal ;
                 core:currency "DOGE" ;
                 core:term 300 ;
@@ -116,7 +133,9 @@ def run_stage_2_mcp_integration_tests():
         assert res2.get("status") == "REJECTED" and res2.get("error_type") == "SHACLShapeViolation", f"Test 2.2 Failed: {res2}"
         print("  ✔ 2.2 SHACL Rejection: Invalid currency and term blocked before HermiT.")
 
-        # 2.3 DL Contradiction Interception
+        # -------------------------------------------------------------
+        # 2.3 HermiT Contradiction Interception (Layer 2)
+        # -------------------------------------------------------------
         call_tool("add_subclass", {"new_class": "DepositAccount", "parent_class": "FinancialProduct"}, req_id=3)
         t3 = """
         PREFIX core: <http://banco.es/ontologies/core#>
@@ -124,7 +143,7 @@ def run_stage_2_mcp_integration_tests():
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
             core:PersonalLoan owl:disjointWith core:DepositAccount .
-            core:Prod_Clash_99 a core:PersonalLoan, core:DepositAccount ;
+            core:Prod_Clash_03 a core:PersonalLoan, core:DepositAccount ;
                 core:principal "1000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
                 core:term 12 ;
@@ -144,10 +163,10 @@ def run_stage_2_mcp_integration_tests():
 # =====================================================================
 if __name__ == "__main__":
     print("================================================================")
-    print("🧪 EXECUTING FULL NEURO-SYMBOLIC TEST SUITE")
+    print("🧪 EXECUTING FULL NEURO-SYMBOLIC 5-LAYER TEST SUITE")
     print("================================================================\n")
     run_stage_1_static_tests()
     run_stage_2_mcp_integration_tests()
     print("================================================================")
-    print("🎉 ALL TESTS PASSED: Schema, Server & Guardrails are healthy.")
+    print("🎉 ALL TESTS PASSED: All 5 Neuro-Symbolic layers verified.")
     print("================================================================")

@@ -1,18 +1,38 @@
-@prefix sh:   <http://www.w3.org/ns/shacl#> .
-@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
-@prefix core: <http://banco.es/ontologies/core#> .
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
+@prefix core:  <http://banco.es/ontologies/core#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix prov:  <http://www.w3.org/ns/prov#> .
+
+#################################################################
+# NodeShape: PersonalLoanShape (Validation & SHACL-AF Rules)
+#################################################################
 
 core:PersonalLoanShape
     a sh:NodeShape ;
     sh:targetClass core:PersonalLoan ;
-    
+
+    # =========================================================
+    # LAYER 1: Structural Data Quality Constraints (SHACL Core)
+    # =========================================================
     sh:property [
         sh:path core:principal ;
         sh:datatype xsd:decimal ;
         sh:minCount 1 ;
         sh:maxCount 1 ;
         sh:minExclusive 0.0 ;
-        sh:message "Principal must be a positive decimal." ;
+        sh:message "Principal must be a positive decimal greater than 0.0." ;
+    ] ;
+
+    sh:property [
+        sh:path core:currency ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "EUR" "USD" "GBP" ) ;
+        sh:message "Currency must be EUR, USD, or GBP." ;
     ] ;
 
     sh:property [
@@ -26,15 +46,6 @@ core:PersonalLoanShape
     ] ;
 
     sh:property [
-        sh:path core:currency ;
-        sh:datatype xsd:string ;
-        sh:minCount 1 ;
-        sh:maxCount 1 ;
-        sh:in ( "EUR" "USD" "GBP" ) ;
-        sh:message "Currency must be EUR, USD, or GBP." ;
-    ] ;
-
-    sh:property [
         sh:path core:rate ;
         sh:datatype xsd:decimal ;
         sh:minCount 1 ;
@@ -42,4 +53,44 @@ core:PersonalLoanShape
         sh:minInclusive 0.0 ;
         sh:maxInclusive 30.0 ;
         sh:message "Interest rate must be between 0.0% and 30.0%." ;
+    ] ;
+
+    # =========================================================
+    # LAYER 3: Calculation & Semantic Materialization (SHACL-AF)
+    # =========================================================
+    
+    # Rule 1: High Interest Rate Materialization (rate > 10.0%)
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX core: <http://banco.es/ontologies/core#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            CONSTRUCT {
+                $this rdf:type core:HighRiskProduct .
+            }
+            WHERE {
+                $this core:rate ?rate .
+                FILTER (?rate > 10.0)
+            }
+        """ ;
+    ] ;
+
+    # Rule 2: High Capital Exposure Risk (principal >= 50,000 & term > 60 months)
+    sh:rule [
+        a sh:SPARQLRule ;
+        sh:construct """
+            PREFIX core: <http://banco.es/ontologies/core#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            CONSTRUCT {
+                $this core:riskExposureCategory "HighExposureTier1"^^xsd:string .
+            }
+            WHERE {
+                $this core:principal ?principal ;
+                      core:term ?term .
+                FILTER (?principal >= 50000.0 && ?term > 60)
+            }
+        """ ;
     ] .
