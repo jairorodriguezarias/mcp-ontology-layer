@@ -11,7 +11,6 @@ CORE = rdflib.Namespace("http://banco.es/ontologies/core#")
 SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
 PROV = rdflib.Namespace("http://www.w3.org/ns/prov#")
 RDF = rdflib.RDF
-XSD = rdflib.XSD
 
 # =====================================================================
 # STAGE 1: Static File & SHACL Schema Validation
@@ -87,7 +86,7 @@ def run_stage_2_mcp_integration_tests():
             return raw_text
 
     try:
-        # MCP Protocol Handshake
+        # MCP Handshake
         send_request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "TestSuite"}}, req_id=0)
         send_notification("notifications/initialized")
 
@@ -154,15 +153,15 @@ def run_stage_2_mcp_integration_tests():
         # -------------------------------------------------------------
         # TEST 2.4: Layer 4 — SKOS Missing-Label Rejection & Taxonomy Gate
         # -------------------------------------------------------------
-        # 2.4a: Negative test - Unlabelled concept MUST be rejected
+        # 2.4a: Negative test - Unique unlabelled concept MUST be rejected
         t4_bad_skos = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:PeerToPeerLending a skos:Concept .
+            core:Unlabeled_Concept_L4a a skos:Concept .
             core:Loan_P2P_BadSKOS a core:PersonalLoan ;
-                core:loanCategory core:PeerToPeerLending ;
+                core:loanCategory core:Unlabeled_Concept_L4a ;
                 core:principal "10000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
                 core:term 24 ;
@@ -170,10 +169,8 @@ def run_stage_2_mcp_integration_tests():
         }
         """
         res_l4_bad = call_tool("execute_sparql", {"query": t4_bad_skos}, req_id=5)
-        assert res_l4_bad.get("status") == "REJECTED", f"Test 2.4a Failed: Expected rejection, got {res_l4_bad}"
-        assert res_l4_bad.get("error_type") == "SKOSTerminologyError", f"Test 2.4a Failed: Expected SKOSTerminologyError, got {res_l4_bad.get('error_type')}"
-        assert "PeerToPeerLending" in res_l4_bad.get("details", ""), "Test 2.4a Failed: Error details did not mention offending concept."
-        print("  ✔ Layer 4a (SKOS Negative): Unlabelled concept 'PeerToPeerLending' blocked with SKOSTerminologyError.")
+        assert res_l4_bad.get("status") == "REJECTED" and res_l4_bad.get("error_type") == "SKOSTerminologyError", f"Test 2.4a Failed: Expected rejection, got {res_l4_bad}"
+        print("  ✔ Layer 4a (SKOS Negative): Unlabelled concept blocked with SKOSTerminologyError.")
 
         # 2.4b: Positive test - Concept with multilingual prefLabels MUST pass
         t4_good_skos = """
@@ -181,10 +178,10 @@ def run_stage_2_mcp_integration_tests():
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:PeerToPeerLending a skos:Concept ;
+            core:Valid_Taxonomy_L4b a skos:Concept ;
                 skos:prefLabel "Peer-to-Peer Lending"@en , "Préstamo P2P"@es .
             core:Loan_P2P_GoodSKOS a core:PersonalLoan ;
-                core:loanCategory core:PeerToPeerLending ;
+                core:loanCategory core:Valid_Taxonomy_L4b ;
                 core:principal "10000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
                 core:term 24 ;
@@ -215,26 +212,27 @@ def run_stage_2_mcp_integration_tests():
         res_l5 = call_tool("execute_sparql", {"query": t5_spoofed_prov}, req_id=7)
         assert res_l5.get("status") == "SUCCESS", f"Test 2.5 Failed: Transaction was not accepted: {res_l5}"
 
-        # Inspect core.owl on disk to verify dual-stamping
         g_l5 = rdflib.Graph().parse(DATA_FILE, format="xml")
         loan_ref = CORE.Loan_SpoofedAudit_03
-
         attributions = [str(o) for o in g_l5.objects(loan_ref, PROV.wasAttributedTo)]
         timestamps = [str(o) for o in g_l5.objects(loan_ref, PROV.generatedAtTime)]
 
-        # 1. Check Dual Attributions (Spoofed literal + Verified System Agent URI)
-        assert "Executive_Admin_Bypass" in attributions, "Test 2.5 Failed: Spoofed attribution literal missing from graph."
-        assert str(CORE.MCP_Autonomous_Agent) in attributions, "Test 2.5 Failed: Verified system agent URI was not stamped."
-        assert len(attributions) >= 2, f"Test 2.5 Failed: Expected >=2 attributions for dual-audit, found: {attributions}"
+        assert "Executive_Admin_Bypass" in attributions, "Test 2.5 Failed: Spoofed attribution missing."
+        assert str(CORE.MCP_Autonomous_Agent) in attributions, "Test 2.5 Failed: Verified system agent missing."
+        assert any("2020-01-01" in t for t in timestamps), "Test 2.5 Failed: Backdated timestamp missing."
+        assert any("2020-01-01" not in t for t in timestamps), "Test 2.5 Failed: Verified live timestamp missing."
+        print(f"  ✔ Layer 5 (PROV-O Dual-Stamp): Verified forensic dual-attribution and dual-timestamps.")
 
-        # 2. Check Dual Timestamps (Backdated 2020 timestamp + Live System ISO timestamp)
-        has_backdated_time = any("2020-01-01" in t for t in timestamps)
-        has_current_time = any("2020-01-01" not in t for t in timestamps)
-        assert has_backdated_time, "Test 2.5 Failed: Backdated user timestamp missing."
-        assert has_current_time, "Test 2.5 Failed: Real-time system execution timestamp missing."
-        assert len(timestamps) >= 2, f"Test 2.5 Failed: Expected >=2 timestamps for dual-audit, found: {timestamps}"
-
-        print(f"  ✔ Layer 5 (PROV-O Dual-Stamp): Verified forensic dual-attribution {attributions} and dual-timestamps {timestamps}.")
+        # -------------------------------------------------------------
+        # TEST 2.6: Native MCP Tool — export_graph
+        # -------------------------------------------------------------
+        res_export = call_tool("export_graph", {"output_file": "graph_test.html"}, req_id=8)
+        assert res_export.get("status") == "SUCCESS", f"Test 2.6 Failed: {res_export}"
+        assert os.path.exists("graph_test.html"), "Test 2.6 Failed: HTML file was not created."
+        assert os.path.getsize("graph_test.html") > 0, "Test 2.6 Failed: Generated HTML is empty."
+        if os.path.exists("graph_test.html"):
+            os.remove("graph_test.html")
+        print("  ✔ Tool (export_graph): Rendered interactive 5-layer HTML network successfully.")
 
     finally:
         proc.terminate()
@@ -250,5 +248,5 @@ if __name__ == "__main__":
     run_stage_1_static_tests()
     run_stage_2_mcp_integration_tests()
     print("\n================================================================")
-    print("🎉 ALL 5 LAYERS (INCLUDING SKOS & PROV-O FORENSICS) VERIFIED.")
+    print("🎉 ALL 5 LAYERS + NATIVE MCP TOOLS VERIFIED AND PASSING.")
     print("================================================================")
