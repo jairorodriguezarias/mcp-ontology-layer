@@ -3,16 +3,21 @@ import json
 import os
 import sys
 import rdflib
-import pyshacl
 
 DATA_FILE = "core.owl"
 SHAPES_FILE = "shapes.ttl"
 
+CORE = rdflib.Namespace("http://banco.es/ontologies/core#")
+SKOS = rdflib.Namespace("http://www.w3.org/2004/02/skos/core#")
+PROV = rdflib.Namespace("http://www.w3.org/ns/prov#")
+RDF = rdflib.RDF
+
 # =====================================================================
-# STAGE 1: Static Schema & Shape Unit Test
+# STAGE 1: Static File & SHACL Schema Validation
 # =====================================================================
 def run_stage_1_static_tests():
     print("▶ STAGE 1: Static File & SHACL Schema Validation")
+    import pyshacl
 
     for f in [DATA_FILE, SHAPES_FILE]:
         if not os.path.exists(f):
@@ -32,14 +37,14 @@ def run_stage_1_static_tests():
         print(f"❌ Static SHACL Validation Failed:\n{report_text}")
         sys.exit(1)
 
-    print("  ✔ Base core.owl satisfies all shapes.ttl constraints.\n")
+    print("  ✔ Base core.owl satisfies all static shapes.ttl constraints.\n")
 
 
 # =====================================================================
-# STAGE 2: Dynamic MCP Server & 5-Layer Integration Test
+# STAGE 2: 5-Layer Live MCP Server Integration Suite
 # =====================================================================
 def run_stage_2_mcp_integration_tests():
-    print("▶ STAGE 2: Live MCP Server 5-Layer Integration Test")
+    print("▶ STAGE 2: Live MCP Server 5-Layer Integration Suite")
 
     proc = subprocess.Popen(
         [sys.executable, "-u", "server.py"],
@@ -81,78 +86,126 @@ def run_stage_2_mcp_integration_tests():
             return raw_text
 
     try:
-        # Step 0: Handshake
+        # MCP Handshake
         send_request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "TestSuite"}}, req_id=0)
         send_notification("notifications/initialized")
 
         # -------------------------------------------------------------
-        # 2.1 Happy Path: Rate > 10% (Triggers Layer 1, 2, 3, 5)
+        # TEST 2.1: Layer 1 — SHACL Structural Quality Gating
         # -------------------------------------------------------------
-        t1 = """
+        t1_invalid = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
-            core:Loan_5Layer_01 a core:PersonalLoan ;
-                core:principal "25000.00"^^xsd:decimal ;
-                core:currency "EUR" ;
-                core:term 48 ;
-                core:rate "14.50"^^xsd:decimal .
-        }
-        """
-        res1 = call_tool("execute_sparql", {"query": t1}, req_id=1)
-        assert res1.get("status") == "SUCCESS", f"Test 2.1 Failed: {res1}"
-        
-        # Verify Layer 3 (HighRiskProduct materialized) & Layer 5 (PROV-O stamped) in core.owl
-        g = rdflib.Graph().parse(DATA_FILE, format="xml")
-        loan_ref = rdflib.URIRef("http://banco.es/ontologies/core#Loan_5Layer_01")
-        high_risk_ref = rdflib.URIRef("http://banco.es/ontologies/core#HighRiskProduct")
-        prov_attr = rdflib.URIRef("http://www.w3.org/ns/prov#wasAttributedTo")
-        
-        has_high_risk = (loan_ref, rdflib.RDF.type, high_risk_ref) in g
-        has_prov = bool(list(g.objects(loan_ref, prov_attr)))
-
-        assert has_high_risk, "Test 2.1 Failed: Layer 3 SHACL-AF did not materialize core:HighRiskProduct"
-        assert has_prov, "Test 2.1 Failed: Layer 5 PROV-O metadata was not stamped"
-        print("  ✔ 2.1 Happy Path: Verified SHACL, HermiT, SHACL-AF Rule Materialization & PROV-O Stamp.")
-
-        # -------------------------------------------------------------
-        # 2.2 SHACL Violation Interception (Layer 1)
-        # -------------------------------------------------------------
-        t2 = """
-        PREFIX core: <http://banco.es/ontologies/core#>
-        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-        INSERT DATA {
-            core:Loan_Bad_02 a core:PersonalLoan ;
+            core:Loan_Bad_L1 a core:PersonalLoan ;
                 core:principal "5000.00"^^xsd:decimal ;
                 core:currency "DOGE" ;
                 core:term 300 ;
                 core:rate "5.50"^^xsd:decimal .
         }
         """
-        res2 = call_tool("execute_sparql", {"query": t2}, req_id=2)
-        assert res2.get("status") == "REJECTED" and res2.get("error_type") == "SHACLShapeViolation", f"Test 2.2 Failed: {res2}"
-        print("  ✔ 2.2 SHACL Rejection: Invalid currency and term blocked before HermiT.")
+        res_l1 = call_tool("execute_sparql", {"query": t1_invalid}, req_id=1)
+        assert res_l1.get("status") == "REJECTED" and res_l1.get("error_type") == "SHACLShapeViolation", f"Test 2.1 Failed: {res_l1}"
+        print("  ✔ Layer 1 (SHACL): Invalid data (currency/term) rejected before reasoning.")
 
         # -------------------------------------------------------------
-        # 2.3 HermiT Contradiction Interception (Layer 2)
+        # TEST 2.2: Layer 2 — HermiT OWL 2 DL Logical Inconsistency Gating
         # -------------------------------------------------------------
-        call_tool("add_subclass", {"new_class": "DepositAccount", "parent_class": "FinancialProduct"}, req_id=3)
-        t3 = """
+        call_tool("add_subclass", {"new_class": "DepositAccount", "parent_class": "FinancialProduct"}, req_id=2)
+        t2_contradiction = """
         PREFIX core: <http://banco.es/ontologies/core#>
         PREFIX owl: <http://www.w3.org/2002/07/owl#>
         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
         INSERT DATA {
             core:PersonalLoan owl:disjointWith core:DepositAccount .
-            core:Prod_Clash_03 a core:PersonalLoan, core:DepositAccount ;
+            core:Prod_Clash_L2 a core:PersonalLoan, core:DepositAccount ;
                 core:principal "1000.00"^^xsd:decimal ;
                 core:currency "EUR" ;
                 core:term 12 ;
                 core:rate "1.00"^^xsd:decimal .
         }
         """
-        res3 = call_tool("execute_sparql", {"query": t3}, req_id=4)
-        assert res3.get("status") == "REJECTED" and res3.get("error_type") == "LogicalInconsistency", f"Test 2.3 Failed: {res3}"
-        print("  ✔ 2.3 HermiT Rejection: Disjointness clash intercepted and rolled back.")
+        res_l2 = call_tool("execute_sparql", {"query": t2_contradiction}, req_id=3)
+        assert res_l2.get("status") == "REJECTED" and res_l2.get("error_type") == "LogicalInconsistency", f"Test 2.2 Failed: {res_l2}"
+        print("  ✔ Layer 2 (HermiT): Disjointness contradiction intercepted & rolled back.")
+
+        # -------------------------------------------------------------
+        # TEST 2.3: Layer 3 — SHACL-AF SPARQL Rule Inference
+        # -------------------------------------------------------------
+        t3_rule = """
+        PREFIX core: <http://banco.es/ontologies/core#>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        INSERT DATA {
+            core:Loan_HighRate_L3 a core:PersonalLoan ;
+                core:principal "25000.00"^^xsd:decimal ;
+                core:currency "EUR" ;
+                core:term 48 ;
+                core:rate "15.00"^^xsd:decimal .
+        }
+        """
+        res_l3 = call_tool("execute_sparql", {"query": t3_rule}, req_id=4)
+        assert res_l3.get("status") == "SUCCESS", f"Test 2.3 Failed to insert: {res_l3}"
+
+        g_l3 = rdflib.Graph().parse(DATA_FILE, format="xml")
+        loan_l3_ref = CORE.Loan_HighRate_L3
+        is_high_risk = (loan_l3_ref, RDF.type, CORE.HighRiskProduct) in g_l3
+        assert is_high_risk, "Test 2.3 Failed: SHACL-AF rule did not materialize core:HighRiskProduct"
+        print("  ✔ Layer 3 (SHACL-AF): Rate > 10.0% materialized core:HighRiskProduct.")
+
+        # -------------------------------------------------------------
+        # TEST 2.4: Layer 4 — SKOS Concept Taxonomy Gating
+        # -------------------------------------------------------------
+        # 2.4a: Negative test - Missing prefLabel
+        t4_bad_skos = """
+        PREFIX core: <http://banco.es/ontologies/core#>
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        INSERT DATA {
+            core:Concept_Unlabeled a skos:Concept .
+            core:Loan_BadSKOS_L4 a core:PersonalLoan ;
+                core:loanCategory core:Concept_Unlabeled ;
+                core:principal "10000.00"^^xsd:decimal ;
+                core:currency "EUR" ;
+                core:term 24 ;
+                core:rate "4.50"^^xsd:decimal .
+        }
+        """
+        res_l4_bad = call_tool("execute_sparql", {"query": t4_bad_skos}, req_id=5)
+        assert res_l4_bad.get("status") == "REJECTED" and res_l4_bad.get("error_type") == "SKOSTerminologyError", f"Test 2.4a Failed: {res_l4_bad}"
+
+        # 2.4b: Positive test - Valid multilingual SKOS concept
+        t4_good_skos = """
+        PREFIX core: <http://banco.es/ontologies/core#>
+        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        INSERT DATA {
+            core:AutoLoanConcept a skos:Concept ;
+                skos:prefLabel "Préstamo Auto"@es, "Auto Loan"@en .
+            core:Loan_GoodSKOS_L4 a core:PersonalLoan ;
+                core:loanCategory core:AutoLoanConcept ;
+                core:principal "12000.00"^^xsd:decimal ;
+                core:currency "EUR" ;
+                core:term 36 ;
+                core:rate "4.75"^^xsd:decimal .
+        }
+        """
+        res_l4_good = call_tool("execute_sparql", {"query": t4_good_skos}, req_id=6)
+        assert res_l4_good.get("status") == "SUCCESS", f"Test 2.4b Failed: {res_l4_good}"
+        print("  ✔ Layer 4 (SKOS): Unlabeled concepts rejected; multilingual taxonomies verified.")
+
+        # -------------------------------------------------------------
+        # TEST 2.5: Layer 5 — PROV-O Audit Trail & Lineage Verification
+        # -------------------------------------------------------------
+        g_l5 = rdflib.Graph().parse(DATA_FILE, format="xml")
+        loan_l5_ref = CORE.Loan_GoodSKOS_L4
+
+        agent_attrs = list(g_l5.objects(loan_l5_ref, PROV.wasAttributedTo))
+        timestamps = list(g_l5.objects(loan_l5_ref, PROV.generatedAtTime))
+
+        assert len(agent_attrs) > 0, "Test 2.5 Failed: Missing prov:wasAttributedTo"
+        assert len(timestamps) > 0, "Test 2.5 Failed: Missing prov:generatedAtTime"
+        assert (agent_attrs[0], RDF.type, PROV.Agent) in g_l5, "Test 2.5 Failed: Attributed entity is not a prov:Agent"
+        print(f"  ✔ Layer 5 (PROV-O): Stamped agent ({agent_attrs[0].split('#')[-1]}) & timestamp ({timestamps[0]}).")
 
     finally:
         proc.terminate()
@@ -167,6 +220,6 @@ if __name__ == "__main__":
     print("================================================================\n")
     run_stage_1_static_tests()
     run_stage_2_mcp_integration_tests()
-    print("================================================================")
-    print("🎉 ALL TESTS PASSED: All 5 Neuro-Symbolic layers verified.")
+    print("\n================================================================")
+    print("🎉 ALL 5 LAYERS INDEPENDENTLY VALIDATED AND PASSING.")
     print("================================================================")
