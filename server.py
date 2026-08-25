@@ -9,6 +9,7 @@ from rdflib import Graph, URIRef, Literal, RDF, RDFS, OWL, XSD, Namespace
 import pyshacl
 import owlready2
 import owlready2.hermit
+from pyvis.network import Network
 
 ONTOLOGY_PATH = os.path.abspath("core.owl")
 SHAPES_PATH = os.path.abspath("shapes.ttl")
@@ -41,9 +42,114 @@ if not os.path.exists(ONTOLOGY_PATH):
     init_g.serialize(destination=ONTOLOGY_PATH, format="xml")
 
 
-class FullNeuroSymbolicRuntime:
-    """Executes the full 5-layer pipeline on every incoming mutation."""
+# --- 5-Layer Visual Graph Engine ---
 
+STYLE_MAP = {
+    "TBOX_CLASS": {"color": "#3498DB", "shape": "box", "size": 25},            # Blue
+    "ABOX_LOAN": {"color": "#2ECC71", "shape": "dot", "size": 22},             # Green (L1)
+    "LAYER3_HIGHRISK": {"color": "#E74C3C", "shape": "diamond", "size": 28},    # Red (L3)
+    "LAYER4_SKOS": {"color": "#F1C40F", "shape": "triangle", "size": 22},       # Yellow (L4)
+    "LAYER5_PROV": {"color": "#9B59B6", "shape": "square", "size": 24},         # Purple (L5)
+    "LITERAL": {"color": "#95A5A6", "shape": "ellipse", "size": 15},            # Gray
+}
+
+def shorten_uri(uri_str: str) -> str:
+    for prefix, base in [
+        ("core:", "http://banco.es/ontologies/core#"),
+        ("skos:", "http://www.w3.org/2004/02/skos/core#"),
+        ("prov:", "http://www.w3.org/ns/prov#"),
+        ("owl:", "http://www.w3.org/2002/07/owl#"),
+        ("rdfs:", "http://www.w3.org/2000/01/rdf-schema#"),
+        ("rdf:", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+    ]:
+        if uri_str.startswith(base):
+            return uri_str.replace(base, prefix)
+    return uri_str.split("#")[-1].split("/")[-1]
+
+def get_node_category(node, graph: Graph) -> str:
+    if isinstance(node, Literal):
+        return "LITERAL"
+    types = set(graph.objects(node, RDF.type))
+    if OWL.Class in types or (node, RDF.type, OWL.Class) in graph:
+        return "TBOX_CLASS"
+    if SKOS.Concept in types:
+        return "LAYER4_SKOS"
+    if PROV.Agent in types or "Agent" in str(node):
+        return "LAYER5_PROV"
+    if CORE.HighRiskProduct in types:
+        return "LAYER3_HIGHRISK"
+    return "ABOX_LOAN"
+
+def generate_interactive_graph(output_filename="graph.html") -> dict:
+    if not os.path.exists(ONTOLOGY_PATH):
+        return {"status": "ERROR", "message": f"Ontology file {ONTOLOGY_PATH} does not exist."}
+
+    g = Graph()
+    g.parse(ONTOLOGY_PATH, format="xml")
+
+    net = Network(height="850px", width="100%", bgcolor="#1e1e24", font_color="#f5f6fa", directed=True)
+    net.force_atlas_2based(gravity=-60, central_gravity=0.015, spring_length=110, spring_strength=0.08, damping=0.5)
+
+    added_nodes = set()
+
+    def register_node(term):
+        term_id = str(term)
+        if term_id in added_nodes:
+            return term_id
+
+        category = get_node_category(term, g)
+        style = STYLE_MAP[category]
+        label = str(term) if isinstance(term, Literal) else shorten_uri(term_id)
+        tooltip = f"Category: {category}\nURI: {term_id}"
+
+        net.add_node(
+            term_id,
+            label=label,
+            title=tooltip,
+            color=style["color"],
+            shape=style["shape"],
+            size=style["size"],
+            font={"size": 14, "color": "#ffffff"}
+        )
+        added_nodes.add(term_id)
+        return term_id
+
+    for s, p, o in g:
+        if o == OWL.Ontology:
+            continue
+        s_id = register_node(s)
+        o_id = register_node(o)
+        p_label = shorten_uri(str(p))
+
+        edge_color = "#7f8c8d"
+        dashes = False
+        if p == RDF.type:
+            edge_color = "#3498DB"
+            dashes = True
+        elif p == RDFS.subClassOf:
+            edge_color = "#2980B9"
+        elif "prov" in str(p):
+            edge_color = "#9B59B6"
+        elif "loanCategory" in str(p) or "skos" in str(p):
+            edge_color = "#F1C40F"
+
+        net.add_edge(s_id, o_id, label=p_label, color=edge_color, dashes=dashes, arrows="to")
+
+    abs_output = os.path.abspath(output_filename)
+    net.save_graph(abs_output)
+
+    return {
+        "status": "SUCCESS",
+        "output_file": abs_output,
+        "nodes_rendered": len(added_nodes),
+        "triples_visualized": len(g),
+        "message": f"Interactive 5-layer graph visualization saved to {abs_output}"
+    }
+
+
+# --- 5-Layer Transactional Runtime ---
+
+class FullNeuroSymbolicRuntime:
     @staticmethod
     def transactional_update(sparql_update: str, agent_id: str = "MCP_Autonomous_Agent") -> dict:
         staging_graph = Graph()
@@ -51,21 +157,17 @@ class FullNeuroSymbolicRuntime:
         staging_graph.bind("skos", SKOS)
         staging_graph.bind("prov", PROV)
 
-        # 1. Load persistent graph into staging sandbox
         try:
             staging_graph.parse(ONTOLOGY_PATH, format="xml")
         except Exception as e:
             return {"status": "REJECTED", "error_type": "StorageError", "details": f"Failed to load core.owl: {e}"}
 
-        # 2. Apply raw SPARQL mutation in staging
         try:
             staging_graph.update(sparql_update)
         except Exception as e:
             return {"status": "REJECTED", "error_type": "SPARQLSyntaxError", "details": str(e)}
 
-        # -------------------------------------------------------------
-        # LAYER 1 (Validation) & LAYER 3 (SHACL-AF Inferences)
-        # -------------------------------------------------------------
+        # LAYER 1 & 3: SHACL Validation & Rule Inferences
         inferred_rules_count = 0
         if os.path.exists(SHAPES_PATH):
             try:
@@ -91,9 +193,7 @@ class FullNeuroSymbolicRuntime:
             except Exception as e:
                 return {"status": "REJECTED", "error_type": "SHACLExecutionError", "details": str(e)}
 
-        # -------------------------------------------------------------
         # LAYER 2: HermiT DL Consistency Check
-        # -------------------------------------------------------------
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".owl", delete=False) as tmp_file:
@@ -109,7 +209,6 @@ class FullNeuroSymbolicRuntime:
                 "-c",
                 f"file://{os.path.abspath(tmp_path)}"
             ]
-
             result = subprocess.run(cmd, capture_output=True, text=True)
             output = (result.stdout + "\n" + result.stderr).strip()
 
@@ -125,9 +224,7 @@ class FullNeuroSymbolicRuntime:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-        # -------------------------------------------------------------
-        # LAYER 4: SKOS Terminology Verification
-        # -------------------------------------------------------------
+        # LAYER 4: SKOS Terminology Check
         for _, _, concept_uri in staging_graph.triples((None, CORE.loanCategory, None)):
             labels = list(staging_graph.objects(concept_uri, SKOS.prefLabel))
             if not labels:
@@ -137,9 +234,7 @@ class FullNeuroSymbolicRuntime:
                     "details": f"Concept {concept_uri} is missing required skos:prefLabel definitions."
                 }
 
-        # -------------------------------------------------------------
-        # LAYER 5: PROV-O Audit Trail Auto-Injection
-        # -------------------------------------------------------------
+        # LAYER 5: PROV-O Audit Stamping
         now_iso = datetime.now(timezone.utc).isoformat()
         agent_uri = CORE[agent_id]
         staging_graph.add((agent_uri, RDF.type, PROV.Agent))
@@ -148,7 +243,7 @@ class FullNeuroSymbolicRuntime:
             staging_graph.add((s, PROV.wasAttributedTo, agent_uri))
             staging_graph.add((s, PROV.generatedAtTime, Literal(now_iso, datatype=XSD.dateTime)))
 
-        # Commit verified state to disk
+        # Commit to persistence
         staging_graph.serialize(destination=ONTOLOGY_PATH, format="xml")
         return {
             "status": "SUCCESS",
@@ -169,7 +264,6 @@ def dispatch_tool(tool_name: str, args: dict) -> dict:
     if tool_name == "execute_sparql":
         query = args.get("query", "")
         is_update = any(k in query.upper() for k in ["INSERT", "DELETE", "CLEAR", "CREATE", "DROP", "LOAD"])
-
         if is_update:
             return FullNeuroSymbolicRuntime.transactional_update(query)
         else:
@@ -193,6 +287,10 @@ def dispatch_tool(tool_name: str, args: dict) -> dict:
         """
         return FullNeuroSymbolicRuntime.transactional_update(sparql_subclass)
 
+    elif tool_name == "export_graph":
+        output_file = args.get("output_file", "graph.html")
+        return generate_interactive_graph(output_file)
+
     return {"status": "ERROR", "message": f"Unknown tool: {tool_name}"}
 
 
@@ -214,7 +312,7 @@ def handle_json_rpc(line: str) -> str:
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "NeuroSymbolicOntologyServer", "version": "1.0.0"}
+                    "serverInfo": {"name": "NeuroSymbolicOntologyServer", "version": "1.1.0"}
                 }
             })
 
@@ -246,6 +344,19 @@ def handle_json_rpc(line: str) -> str:
                                     "parent_class": {"type": "string"}
                                 },
                                 "required": ["new_class", "parent_class"]
+                            }
+                        },
+                        {
+                            "name": "export_graph",
+                            "description": "Export an interactive force-directed PyVis HTML graph with color-coded nodes for each of the 5 neuro-symbolic layers.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "output_file": {
+                                        "type": "string",
+                                        "description": "Target HTML file name (default: graph.html)"
+                                    }
+                                }
                             }
                         }
                     ]
