@@ -1,236 +1,240 @@
 import sys
 import json
 import os
-from owlready2 import get_ontology, IRIS, types, sync_reasoner_hermit, default_world
-from pyvis.network import Network
+import tempfile
+import subprocess
 import rdflib
+from rdflib import Graph, URIRef, RDF, RDFS, OWL, Namespace
+import pyshacl
+import owlready2
+import owlready2.hermit
 
 ONTOLOGY_PATH = os.path.abspath("core.owl")
-ONTOLOGY_URI = f"file://{ONTOLOGY_PATH}"
+SHAPES_PATH = os.path.abspath("shapes.ttl")
+CORE = Namespace("http://banco.es/ontologies/core#")
 
-def get_loaded_ontology():
-    return get_ontology(ONTOLOGY_URI).load()
+# Resolve HermiT Java paths
+JAVA_EXE = getattr(owlready2, "JAVA_EXE", "java")
+HERMIT_CLASSPATH = getattr(owlready2.hermit, "HERMIT_CLASSPATH", None)
+if not HERMIT_CLASSPATH:
+    hermit_dir = os.path.join(os.path.dirname(owlready2.__file__), "hermit")
+    sep = ";" if sys.platform.startswith("win") else ":"
+    HERMIT_CLASSPATH = f"{hermit_dir}{sep}{os.path.join(hermit_dir, 'HermiT.jar')}"
 
-def handle_list_classes():
-    try:
-        onto = get_loaded_ontology()
-        classes = [cls.name for cls in list(onto.classes())]
-        return f"Ontology classes: {classes}"
-    except Exception as e:
-        return f"Error reading ontology: {e}"
 
-def handle_add_subclass(new_class: str, parent_class: str):
-    try:
-        onto = get_loaded_ontology()
-        Parent = IRIS[f"{onto.base_iri}{parent_class}"]
-        if not Parent:
-            return f"Error: Parent class '{parent_class}' does not exist."
-        
-        with onto:
-            types.new_class(new_class, (Parent,))
-        
-        onto.save(file=ONTOLOGY_PATH, format="rdfxml")
-        return f"Success: '{new_class}' created as subclass of '{parent_class}'."
-    except Exception as e:
-        return f"Error adding subclass: {e}"
+class DualValidationGuardrail:
+    """Transactional staging engine: RDFLib (SHACL) -> HermiT (OWL 2 DL) -> Disk."""
 
-def handle_create_individual(class_name: str, individual_id: str):
-    try:
-        onto = get_loaded_ontology()
-        Cls = IRIS[f"{onto.base_iri}{class_name}"]
-        if not Cls:
-            return f"Error: Class '{class_name}' does not exist."
-        
-        with onto:
-            Cls(individual_id)
-        
-        onto.save(file=ONTOLOGY_PATH, format="rdfxml")
-        return f"Success: Created individual '{individual_id}' of type '{class_name}'."
-    except Exception as e:
-        return f"Error creating individual: {e}"
+    @staticmethod
+    def transactional_update(sparql_update: str) -> dict:
+        # 1. Load current graph into isolated staging graph
+        staging_graph = Graph()
+        try:
+            staging_graph.parse(ONTOLOGY_PATH, format="xml")
+        except Exception as e:
+            return {"status": "REJECTED", "error_type": "StorageError", "details": f"Failed to load core.owl: {e}"}
 
-def handle_check_consistency():
-    try:
-        onto = get_loaded_ontology()
-        with onto:
-            sync_reasoner_hermit(infer_property_values=True)
-        return "Consistency Check (HermiT): The ontology is logically consistent. No unsatisfiable classes found."
-    except Exception as e:
-        return f"Consistency Check (HermiT) Failed: Inconsistency detected -> {e}"
+        # 2. Apply SPARQL update in staging
+        try:
+            staging_graph.update(sparql_update)
+        except Exception as e:
+            return {"status": "REJECTED", "error_type": "SPARQLSyntaxError", "details": str(e)}
 
-def handle_execute_sparql(query: str):
-    """Executes SPARQL 1.1 queries or updates and guarantees a string response."""
-    try:
-        onto = get_loaded_ontology()
-        graph = default_world.as_rdflib_graph()
-        
-        # Check if query is an update operation
-        update_keywords = ["INSERT", "DELETE", "CLEAR", "CREATE", "DROP", "LOAD"]
-        is_update = any(token in query.upper() for token in update_keywords)
+        # 3. Stage 1: SHACL Data Quality Validation
+        if os.path.exists(SHAPES_PATH):
+            try:
+                shapes_graph = Graph().parse(SHAPES_PATH, format="turtle")
+                conforms, _, report_text = pyshacl.validate(
+                    data_graph=staging_graph,
+                    shacl_graph=shapes_graph,
+                    inference="rdfs",
+                    abort_on_first=False
+                )
+                if not conforms:
+                    return {
+                        "status": "REJECTED",
+                        "error_type": "SHACLShapeViolation",
+                        "details": report_text.strip()
+                    }
+            except Exception as e:
+                return {"status": "REJECTED", "error_type": "SHACLExecutionError", "details": str(e)}
+
+        # 4. Stage 2: HermiT DL Consistency Check (-c flag)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".owl", delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                staging_graph.serialize(destination=tmp_path, format="xml")
+
+            cmd = [
+                JAVA_EXE,
+                "-Xmx2000M",
+                "-cp",
+                HERMIT_CLASSPATH,
+                "org.semanticweb.HermiT.cli.CommandLine",
+                "-c",
+                f"file://{os.path.abspath(tmp_path)}"
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            output = (result.stdout + "\n" + result.stderr).strip()
+
+            if result.returncode != 0 or "inconsistent" in output.lower():
+                return {
+                    "status": "REJECTED",
+                    "error_type": "LogicalInconsistency",
+                    "details": output
+                }
+
+        except Exception as e:
+            return {
+                "status": "REJECTED",
+                "error_type": "HermiTExecutionError",
+                "details": str(e)
+            }
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        # 5. Atomic Commit: Only write to disk if both SHACL & HermiT passed
+        staging_graph.serialize(destination=ONTOLOGY_PATH, format="xml")
+        return {
+            "status": "SUCCESS",
+            "message": "Mutation passed SHACL and HermiT validation and committed."
+        }
+
+
+# --- Tool Dispatcher ---
+
+def dispatch_tool(tool_name: str, args: dict) -> dict:
+    if tool_name == "execute_sparql":
+        query = args.get("query", "")
+        is_update = any(k in query.upper() for k in ["INSERT", "DELETE", "CLEAR", "CREATE", "DROP", "LOAD"])
         
         if is_update:
-            with onto:
-                graph.update(query)
-            onto.save(file=ONTOLOGY_PATH, format="rdfxml")
-            return "SPARQL Update executed successfully and changes persisted to core.owl."
-        
-        # Read query
-        results = graph.query(query)
-        output = []
-        for row in results:
-            output.append([str(item) for item in row])
-            
-        return json.dumps(output, indent=2)
-        
-    except Exception as e:
-        return f"SPARQL execution error: {e}"
+            return DualValidationGuardrail.transactional_update(query)
+        else:
+            g = Graph().parse(ONTOLOGY_PATH, format="xml")
+            results = g.query(query)
+            rows = [[str(term) for term in row] for row in results]
+            return {"status": "SUCCESS", "results": rows}
 
-def handle_export_graph(output_html: str = "graph.html"):
+    elif tool_name == "add_subclass":
+        new_class = args.get("new_class")
+        parent_class = args.get("parent_class", "FinancialProduct")
+        sparql_subclass = f"""
+        PREFIX core: <http://banco.es/ontologies/core#>
+        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        PREFIX owl: <http://www.w3.org/2002/07/owl#>
+        INSERT DATA {{
+            core:{parent_class} a owl:Class .
+            core:{new_class} a owl:Class ;
+                rdfs:subClassOf core:{parent_class} .
+        }}
+        """
+        return DualValidationGuardrail.transactional_update(sparql_subclass)
+
+    return {"status": "ERROR", "message": f"Unknown tool: {tool_name}"}
+
+
+# --- MCP Protocol Event Loop ---
+
+def handle_json_rpc(line: str) -> str:
+    if not line.strip():
+        return ""
+
     try:
-        g = rdflib.Graph()
-        g.parse(ONTOLOGY_PATH, format="xml")
-        
-        net = Network(height="750px", width="100%", directed=True, bgcolor="#1a1a1a", font_color="white")
-        for s, p, o in g:
-            s_label = str(s).split("#")[-1].split("/")[-1]
-            o_label = str(o).split("#")[-1].split("/")[-1]
-            p_label = str(p).split("#")[-1].split("/")[-1]
-            
-            if s_label and o_label:
-                net.add_node(str(s), label=s_label, color="#4CAF50")
-                net.add_node(str(o), label=o_label, color="#2196F3")
-                net.add_edge(str(s), str(o), title=p_label, label=p_label)
-                
-        net.save_graph(output_html)
-        return f"Success: Interactive graph exported to '{output_html}'."
-    except Exception as e:
-        return f"Error exporting graph: {e}"
-
-def main():
-    tools = [
-        {
-            "name": "list_classes",
-            "description": "Lists all classes currently present in the banking ontology.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
-        },
-        {
-            "name": "add_subclass",
-            "description": "Adds a new subclass to an existing parent class in the ontology.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "new_class": {"type": "string", "description": "Name of the new entity class"},
-                    "parent_class": {"type": "string", "description": "Name of the existing parent class"}
-                },
-                "required": ["new_class", "parent_class"]
-            }
-        },
-        {
-            "name": "create_individual",
-            "description": "Instantiates a concrete individual (ABox entity) belonging to a specific class.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "class_name": {"type": "string", "description": "Class type for the individual"},
-                    "individual_id": {"type": "string", "description": "Unique identifier for the individual"}
-                },
-                "required": ["class_name", "individual_id"]
-            }
-        },
-        {
-            "name": "check_consistency",
-            "description": "Runs the HermiT Description Logic (DL) reasoner to verify logical consistency and compute inferences.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {}
-            }
-        },
-        {
-            "name": "execute_sparql",
-            "description": "Executes a SPARQL query or update (SELECT, CONSTRUCT, INSERT DATA, DELETE DATA) against the RDF knowledge graph.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Standard W3C SPARQL query or update string"}
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "export_graph",
-            "description": "Generates an interactive HTML visual representation of the RDF knowledge graph using PyVis.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "output_html": {"type": "string", "description": "Output HTML filename (e.g., 'graph.html')"}
-                }
-            }
-        }
-    ]
-
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        
-        try:
-            req = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
+        req = json.loads(line)
         method = req.get("method")
-        msg_id = req.get("id")
+        req_id = req.get("id")
 
         if method == "initialize":
-            res = {
+            return json.dumps({
                 "jsonrpc": "2.0",
-                "id": msg_id,
+                "id": req_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "Banco_Ontology_Manager", "version": "1.3.1"}
+                    "serverInfo": {"name": "OntologyGuardrailServer", "version": "1.0.0"}
                 }
-            }
+            })
+
         elif method == "notifications/initialized":
-            continue
+            return ""
+
         elif method == "tools/list":
-            res = {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools}}
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "tools": [
+                        {
+                            "name": "execute_sparql",
+                            "description": "Execute a SPARQL Query or UPDATE through the validation guardrail.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {"query": {"type": "string"}},
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "add_subclass",
+                            "description": "Create a new subclass in the ontology.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "new_class": {"type": "string"},
+                                    "parent_class": {"type": "string"}
+                                },
+                                "required": ["new_class", "parent_class"]
+                            }
+                        }
+                    ]
+                }
+            })
+
         elif method == "tools/call":
             params = req.get("params", {})
             name = params.get("name")
-            args = params.get("arguments", {})
-
-            if name == "list_classes":
-                text = handle_list_classes()
-            elif name == "add_subclass":
-                text = handle_add_subclass(args.get("new_class"), args.get("parent_class"))
-            elif name == "create_individual":
-                text = handle_create_individual(args.get("class_name"), args.get("individual_id"))
-            elif name == "check_consistency":
-                text = handle_check_consistency()
-            elif name == "execute_sparql":
-                text = handle_execute_sparql(args.get("query"))
-            elif name == "export_graph":
-                text = handle_export_graph(args.get("output_html", "graph.html"))
-            else:
-                text = f"Tool '{name}' is not recognized."
-
-            res = {
+            arguments = params.get("arguments", {})
+            result = dispatch_tool(name, arguments)
+            return json.dumps({
                 "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {"content": [{"type": "text", "text": text}]}
-            }
-        else:
-            res = {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "error": {"code": -32601, "message": "Method not found"}
-            }
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": json.dumps(result)}]
+                }
+            })
 
-        sys.stdout.write(json.dumps(res) + "\n")
-        sys.stdout.flush()
+        return json.dumps({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not supported: {method}"}
+        })
+
+    except Exception as e:
+        sys.stderr.write(f"Protocol Exception: {e}\n")
+        sys.stderr.flush()
+        return json.dumps({
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32700, "message": str(e)}
+        })
+
+
+def main():
+    sys.stderr.write("Server started. Listening on stdio...\n")
+    sys.stderr.flush()
+
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        response = handle_json_rpc(line)
+        if response:
+            sys.stdout.write(response + "\n")
+            sys.stdout.flush()
+
 
 if __name__ == "__main__":
     main()

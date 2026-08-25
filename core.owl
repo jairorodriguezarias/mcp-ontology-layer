@@ -1,50 +1,28 @@
-<?xml version="1.0"?>
-<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-         xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
-         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
-         xmlns:owl="http://www.w3.org/2002/07/owl#"
-         xml:base="http://banco.es/ontologies/core"
-         xmlns="http://banco.es/ontologies/core#">
-
-<owl:Ontology rdf:about="http://banco.es/ontologies/core"/>
-
-<owl:Class rdf:about="#FinancialProduct"/>
-
-<owl:Class rdf:about="#Loan">
-  <rdfs:subClassOf rdf:resource="#FinancialProduct"/>
-</owl:Class>
-
-<owl:Class rdf:about="#PrestamoHipotecario">
-  <rdfs:subClassOf rdf:resource="#Loan"/>
-</owl:Class>
-
-<owl:Class rdf:about="#PersonalLoan">
-  <rdfs:subClassOf rdf:resource="#Loan"/>
-</owl:Class>
-
-<owl:NamedIndividual rdf:about="#Hipoteca_Fija_001">
-  <rdf:type rdf:resource="#PrestamoHipotecario"/>
-</owl:NamedIndividual>
-
-<owl:NamedIndividual rdf:about="#Hipoteca_Variable_01">
-  <rdf:type rdf:resource="#PrestamoHipotecario"/>
-</owl:NamedIndividual>
-
-<owl:NamedIndividual rdf:about="#Hipoteca_Fija_02">
-  <rdf:type rdf:resource="#PrestamoHipotecario"/>
-</owl:NamedIndividual>
-
-<owl:NamedIndividual rdf:about="#Credito_Consumo_03">
-  <rdf:type rdf:resource="#PrestamoHipotecario"/>
-</owl:NamedIndividual>
-
-<owl:NamedIndividual rdf:about="#Loan_Auto_2026_01">
-  <rdf:type rdf:resource="#PersonalLoan"/>
-  <term rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">60</term>
-  <principal rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">24500.00</principal>
-  <rate rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">5.75</rate>
-  <currency>EUR</currency>
-</owl:NamedIndividual>
-
-
+<?xml version="1.0" encoding="utf-8"?>
+<rdf:RDF
+   xmlns="http://banco.es/ontologies/core#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#Loan_Valid_99">
+    <currency>EUR</currency>
+    <principal rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">18000.00</principal>
+    <rate rdf:datatype="http://www.w3.org/2001/XMLSchema#decimal">5.50</rate>
+    <term rdf:datatype="http://www.w3.org/2001/XMLSchema#integer">60</term>
+    <rdf:type rdf:resource="http://banco.es/ontologies/core#PersonalLoan"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#PersonalLoan">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Ontology"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#DepositAccount">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+    <rdfs:subClassOf rdf:resource="http://banco.es/ontologies/core#FinancialProduct"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://banco.es/ontologies/core#FinancialProduct">
+    <rdf:type rdf:resource="http://www.w3.org/2002/07/owl#Class"/>
+  </rdf:Description>
 </rdf:RDF>

@@ -1,3 +1,4 @@
-owlready2>=0.40
+owlready2>=0.46
 rdflib>=7.0.0
+pyshacl>=0.25.0
 pyvis>=0.3.2

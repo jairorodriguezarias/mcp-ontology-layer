@@ -1,0 +1,45 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix core: <http://banco.es/ontologies/core#> .
+
+core:PersonalLoanShape
+    a sh:NodeShape ;
+    sh:targetClass core:PersonalLoan ;
+    
+    sh:property [
+        sh:path core:principal ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive 0.0 ;
+        sh:message "Principal must be a positive decimal." ;
+    ] ;
+
+    sh:property [
+        sh:path core:term ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 6 ;
+        sh:maxInclusive 120 ;
+        sh:message "Term must be an integer between 6 and 120 months." ;
+    ] ;
+
+    sh:property [
+        sh:path core:currency ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "EUR" "USD" "GBP" ) ;
+        sh:message "Currency must be EUR, USD, or GBP." ;
+    ] ;
+
+    sh:property [
+        sh:path core:rate ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 0.0 ;
+        sh:maxInclusive 30.0 ;
+        sh:message "Interest rate must be between 0.0% and 30.0%." ;
+    ] .
